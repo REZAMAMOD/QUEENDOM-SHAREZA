@@ -707,7 +707,7 @@ const App: React.FC = () => {
                                     <button 
                                       key={age}
                                       onClick={() => setState(prev => ({...prev, modelSettings: {...prev.modelSettings, age: age as any}}))}
-                                      className={`flex-1 py-2 text-xs border rounded-lg transition-colors ${state.modelSettings.age === age ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50'}`}
+                                      className={`flex-1 py-2 text-xs border rounded-lg transition-colors ${state.modelSettings.age === age ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50 text-gray-700 border-gray-200'}`}
                                     >{age}</button>
                                  ))}
                               </div>
@@ -719,7 +719,7 @@ const App: React.FC = () => {
                                     <button 
                                       key={body}
                                       onClick={() => setState(prev => ({...prev, modelSettings: {...prev.modelSettings, bodyType: body as any}}))}
-                                      className={`flex-1 py-2 text-xs border rounded-lg transition-colors ${state.modelSettings.bodyType === body ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50'}`}
+                                      className={`flex-1 py-2 text-xs border rounded-lg transition-colors ${state.modelSettings.bodyType === body ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50 text-gray-700 border-gray-200'}`}
                                     >{body}</button>
                                  ))}
                               </div>
@@ -744,7 +744,7 @@ const App: React.FC = () => {
                           <h3 className="text-lg font-serif text-burgundy mb-4">Vêtement</h3>
                           <div className="grid grid-cols-2 gap-2">
                              {GARMENT_STYLES.map(s => (
-                                <button key={s.id} onClick={() => setState(prev => ({...prev, garmentStyle: s.id, bottomColor: null}))} className={`p-2 rounded-lg border text-left text-[10px] ${state.garmentStyle === s.id ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50'}`}>
+                                <button key={s.id} onClick={() => setState(prev => ({...prev, garmentStyle: s.id, bottomColor: null}))} className={`p-2 rounded-lg border text-left text-[10px] ${state.garmentStyle === s.id ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50 text-gray-700 border-gray-200'}`}>
                                    <span className="font-bold block">{s.name}</span>
                                 </button>
                              ))}
@@ -781,7 +781,7 @@ const App: React.FC = () => {
                           <h3 className="text-lg font-serif text-burgundy mb-4">Ambiance</h3>
                           <div className="space-y-2">
                              {MOODS.map(m => (
-                                <button key={m.id} onClick={() => setState(prev => ({...prev, mood: m.id}))} className={`w-full p-2 flex justify-between items-center rounded-lg border text-left transition-colors ${state.mood === m.id ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50 border-gray-100'}`}>
+                                <button key={m.id} onClick={() => setState(prev => ({...prev, mood: m.id}))} className={`w-full p-2 flex justify-between items-center rounded-lg border text-left transition-colors ${state.mood === m.id ? 'bg-burgundy text-white border-burgundy' : 'hover:bg-gray-50 border-gray-100 text-gray-700'}`}>
                                    <span className="text-sm font-bold">{m.label}</span>
                                    <span className={`text-[10px] ${state.mood === m.id ? 'text-white/70' : 'text-gray-400'}`}>{m.desc}</span>
                                 </button>
