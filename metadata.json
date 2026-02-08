@@ -1,0 +1,7 @@
+{
+  "name": "QUEENDOM S&R",
+  "description": "Transform garment photos on mannequins into professional fashion photoshoots featuring a consistent Indian model in exotic locations.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
