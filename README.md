@@ -1,20 +1,42 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 👑 Queendom Shareza
 
-# Run and deploy your AI Studio app
+PWA de génération de mannequins virtuels pour tissus traditionnels malgaches.
 
-This contains everything you need to run your app locally.
+**By Shareza 💕**
 
-View your app in AI Studio: https://ai.studio/apps/drive/1oKcipH_ODZqaxOrUlq28QwXvAxesCG7I
+## Features
 
-## Run Locally
+- 📸 Upload d'images de tissus (plat + mannequin)
+- 👗 Sélection de styles (Saree, Abaya, Salwar Kameez, etc.)
+- 🏛️ Choix de lieux (Studio, Palais, Jardin, etc.)
+- 🤖 Génération IA via Google Gemini
+- 📱 PWA installable sur mobile
 
-**Prerequisites:**  Node.js
+## Installation
 
+```bash
+npm install
+npm run dev
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Configuration
+
+Créer un fichier `.env.local` avec :
+
+```
+GEMINI_API_KEY=your_api_key_here
+```
+
+## Build PWA
+
+```bash
+npm run build
+```
+
+## Déploiement
+
+Déployer le dossier `dist/` sur Coolify ou tout hébergeur statique avec HTTPS.
+
+---
+
+*Fait avec ❤️ par Shareza pour Mams*
