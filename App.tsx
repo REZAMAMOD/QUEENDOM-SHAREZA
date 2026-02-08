@@ -4,6 +4,8 @@ import { LocationType, AppState, GarmentStyle, GeneratedResult, HistoryItem } fr
 import { LOCATIONS, STEPS, GARMENT_STYLES, POSES, BOTTOM_COLORS, INSPIRATION_GALLERY, SOCIAL_FORMATS, MODEL_OPTIONS, MOODS } from './constants';
 import { geminiService } from './services/geminiService';
 import { saveHistoryItem, getAllHistory, clearAllHistory, deleteHistoryItem } from './utils/db';
+import { useApiKey } from './hooks/useApiKey';
+import { ApiKeySetup } from './components/ApiKeySetup';
 
 // --- Sous-composants UI ---
 
@@ -12,7 +14,8 @@ const Sidebar: React.FC<{
   setView: (v: any) => void;
   countHistory: number;
   isHighQuality: boolean;
-}> = ({ currentView, setView, countHistory, isHighQuality }) => (
+  onSettingsClick?: () => void;
+}> = ({ currentView, setView, countHistory, isHighQuality, onSettingsClick }) => (
   <div className="w-20 lg:w-64 bg-burgundy text-white flex flex-col justify-between shadow-2xl z-20 transition-all fixed h-full lg:relative">
     <div className="p-6">
       <div className="flex items-center gap-3 mb-10">
@@ -47,6 +50,16 @@ const Sidebar: React.FC<{
           </div>
           <span className="hidden lg:block uppercase text-xs tracking-widest">Portfolio</span>
         </button>
+
+        {onSettingsClick && (
+          <button 
+            onClick={onSettingsClick}
+            className="w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all hover:bg-white/5 text-gray-300 mt-4 border-t border-white/10 pt-6"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            <span className="hidden lg:block uppercase text-xs tracking-widest">Clé API</span>
+          </button>
+        )}
       </nav>
     </div>
     
@@ -195,6 +208,10 @@ const MagicEditor: React.FC<{
 };
 
 const App: React.FC = () => {
+  // API Key Management
+  const { apiKey, setApiKey, hasApiKey, isLoading: isLoadingApiKey } = useApiKey();
+  const [showApiKeySetup, setShowApiKeySetup] = useState(false);
+
   // State Initialization
   const [state, setState] = useState<AppState>({
     currentView: 'create',
@@ -533,13 +550,37 @@ const App: React.FC = () => {
     ? state.history 
     : state.history.filter(h => h.garmentStyle === state.historyFilter);
 
+  // Show loading while checking API key
+  if (isLoadingApiKey) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#fcf9f2]">
+        <div className="text-burgundy text-xl">Chargement...</div>
+      </div>
+    );
+  }
+
+  // Show API key setup if not configured
+  if (!hasApiKey && !showApiKeySetup) {
+    return <ApiKeySetup onSave={(key) => setApiKey(key)} />;
+  }
+
   return (
     <div className="min-h-screen flex bg-[#fcf9f2]">
+      {/* API Key Setup Modal */}
+      {showApiKeySetup && (
+        <ApiKeySetup 
+          onSave={(key) => { setApiKey(key); setShowApiKeySetup(false); }} 
+          onCancel={() => setShowApiKeySetup(false)}
+          initialKey={apiKey || ''}
+        />
+      )}
+
       <Sidebar 
         currentView={state.currentView} 
         setView={(v) => setState(prev => ({...prev, currentView: v}))} 
         countHistory={state.history.length}
         isHighQuality={state.isHighQuality}
+        onSettingsClick={() => setShowApiKeySetup(true)}
       />
 
       <main className="flex-1 overflow-y-auto h-screen relative ml-20 lg:ml-0">

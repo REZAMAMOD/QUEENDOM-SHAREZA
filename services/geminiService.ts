@@ -1,15 +1,30 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { FASHION_PROMPT_TEMPLATE } from "../constants";
 import { ModelSettings } from "../types";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-export class GeminiService {
-  private ai: GoogleGenAI;
+// Storage key for the API key
+const API_KEY_STORAGE_KEY = 'gemini_api_key';
 
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// Get API key from localStorage
+function getApiKey(): string {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+  }
+  return '';
+}
+
+export class GeminiService {
+  private ai: GoogleGenAI | null = null;
+
+  private getAI(): GoogleGenAI {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      throw new Error("API_KEY_NOT_SET");
+    }
+    // Always create fresh instance to pick up any key changes
+    return new GoogleGenAI({ apiKey });
   }
 
   async generateFashionPhoto(
@@ -31,10 +46,9 @@ export class GeminiService {
 
     while (attempts < maxAttempts) {
       try {
-        // Re-initialize to catch any potential API key updates
-        this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+        const ai = this.getAI();
 
-        const response = await this.ai.models.generateContent({
+        const response = await ai.models.generateContent({
           model: modelName,
           contents: {
             parts: [
@@ -75,6 +89,11 @@ export class GeminiService {
         throw new Error("No image data found in AI response");
 
       } catch (error: any) {
+        // Check for API key not set
+        if (error.message === "API_KEY_NOT_SET") {
+          throw new Error("API_KEY_NOT_SET");
+        }
+
         // Check for Quota/Rate Limit errors
         const isQuotaError = 
           error.status === 429 || 
@@ -95,7 +114,8 @@ export class GeminiService {
 
         console.error("Gemini Generation Error:", error);
         
-        if (error.message?.includes("Requested entity was not found")) {
+        if (error.message?.includes("Requested entity was not found") || 
+            error.message?.includes("API key not valid")) {
           throw new Error("API_KEY_ERROR");
         }
         
