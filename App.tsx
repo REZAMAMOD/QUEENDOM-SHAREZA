@@ -3,24 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { LocationType, AppState, GarmentStyle, GeneratedResult, HistoryItem } from './types';
 import { LOCATIONS, STEPS, GARMENT_STYLES, POSES, BOTTOM_COLORS, INSPIRATION_GALLERY, SOCIAL_FORMATS, MODEL_OPTIONS, MOODS } from './constants';
 import { geminiService } from './services/geminiService';
-
-// --- Services LocalStorage ---
-const STORAGE_KEY = 'vastra_history_v1';
-const saveHistory = (items: HistoryItem[]) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch (e) {
-    console.error("Storage full or error", e);
-  }
-};
-const loadHistory = (): HistoryItem[] => {
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch (e) {
-    return [];
-  }
-};
+import { saveHistoryItem, getAllHistory, clearAllHistory, deleteHistoryItem } from './utils/db';
 
 // --- Sous-composants UI ---
 
@@ -30,7 +13,7 @@ const Sidebar: React.FC<{
   countHistory: number;
   isHighQuality: boolean;
 }> = ({ currentView, setView, countHistory, isHighQuality }) => (
-  <div className="w-20 lg:w-64 bg-burgundy text-white flex flex-col justify-between shadow-2xl z-20 transition-all">
+  <div className="w-20 lg:w-64 bg-burgundy text-white flex flex-col justify-between shadow-2xl z-20 transition-all fixed h-full lg:relative">
     <div className="p-6">
       <div className="flex items-center gap-3 mb-10">
         <div className="w-10 h-10 indian-gradient rounded-full flex items-center justify-center text-[#D4AF37] font-serif text-xl italic border border-[#D4AF37] shrink-0">V</div>
@@ -74,14 +57,14 @@ const Sidebar: React.FC<{
           <div className={`w-2 h-2 rounded-full ${isHighQuality ? 'bg-[#D4AF37]' : 'bg-gray-500'}`}></div>
           <p>{isHighQuality ? 'Mode Prestige : ACTIF' : 'Mode Standard'}</p>
         </div>
-        <p className="opacity-50">Batch Auto-Save on.</p>
+        <p className="opacity-50">Storage: IndexedDB</p>
       </div>
     </div>
   </div>
 );
 
 const ProgressBar: React.FC<{ currentStep: number }> = ({ currentStep }) => (
-  <div className="max-w-3xl mx-auto mb-10">
+  <div className="max-w-3xl mx-auto mb-10 pt-4 md:pt-0">
     <div className="flex justify-between relative">
       <div className="absolute top-1/2 left-0 w-full h-0.5 bg-gray-200 -translate-y-1/2 -z-10"></div>
       {STEPS.map((step) => (
@@ -148,7 +131,7 @@ const ConfirmationModal: React.FC<{
         <p className="text-sm text-gray-500 mb-6">{message}</p>
         <div className="flex gap-3 justify-center">
           <button onClick={onClose} className="px-5 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100 transition-colors">Annuler</button>
-          <button onClick={() => { onConfirm(); onClose(); }} className="px-5 py-2 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-200">Supprimer</button>
+          <button onClick={() => { onConfirm(); onClose(); }} className="px-5 py-2 rounded-xl bg-red-600 text-white font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-200">Confirmer</button>
         </div>
       </div>
     </div>
@@ -234,7 +217,7 @@ const App: React.FC = () => {
     results: [],
     error: null,
     isHighQuality: false, // Default is FALSE (Standard Mode)
-    history: loadHistory(),
+    history: [], // Starts empty, loaded async
     historyFilter: 'ALL'
   });
 
@@ -242,11 +225,23 @@ const App: React.FC = () => {
   const [editingResult, setEditingResult] = useState<GeneratedResult | null>(null);
   const [socialFormat, setSocialFormat] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  // Batch Selection State
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(new Set());
 
-  // Save history whenever it changes
+  // Load history from DB on mount
   useEffect(() => {
-    saveHistory(state.history);
-  }, [state.history]);
+    const fetchHistory = async () => {
+      try {
+        const items = await getAllHistory();
+        setState(prev => ({ ...prev, history: items }));
+      } catch (e) {
+        console.error("Failed to load history", e);
+      }
+    };
+    fetchHistory();
+  }, []);
 
   // --- Handlers ---
 
@@ -288,6 +283,8 @@ const App: React.FC = () => {
       error: null
     }));
     setStep(3);
+    setSelectionMode(false);
+    setSelectedResultIds(new Set());
   };
 
   const togglePose = (poseId: string) => {
@@ -321,17 +318,15 @@ const App: React.FC = () => {
 
     setState(prev => ({ ...prev, isGenerating: true, error: null, results: [], progress: "Initialisation..." }));
     setStep(3);
+    setSelectionMode(false); // Reset selection mode
 
     try {
       const generatedResults: GeneratedResult[] = [];
       let count = 1;
       
-      // Calculate total steps including custom pose
       const activePoses = POSES.filter(p => state.selectedPoses.includes(p.id));
       const hasCustomPose = state.customPose.trim().length > 0;
       const totalSteps = activePoses.length + (hasCustomPose ? 1 : 0);
-
-      // Determine Location String
       const locationPrompt = state.location === LocationType.CUSTOM ? state.customLocation : state.location;
 
       // 1. Process Standard Poses
@@ -372,7 +367,7 @@ const App: React.FC = () => {
           state.imageMannequin!,
           locationPrompt,
           state.garmentStyle,
-          state.customPose, // Use custom text
+          state.customPose, 
           state.bottomColor,
           state.modelSettings,
           state.mood,
@@ -398,11 +393,14 @@ const App: React.FC = () => {
         thumbnail: generatedResults[0].image
       };
 
+      await saveHistoryItem(newHistoryItem);
+      const updatedHistory = await getAllHistory();
+
       setState(prev => ({ 
         ...prev, 
         isGenerating: false, 
         progress: "", 
-        history: [newHistoryItem, ...prev.history] 
+        history: updatedHistory 
       }));
 
     } catch (err: any) {
@@ -422,9 +420,7 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, isGenerating: true, progress: "Raffinement magique..." }));
     
     try {
-      // Determine Location String
       const locationPrompt = state.location === LocationType.CUSTOM ? state.customLocation : state.location;
-
       const refinedImage = await geminiService.generateFashionPhoto(
         state.imageFlat!,
         state.imageMannequin!,
@@ -436,18 +432,50 @@ const App: React.FC = () => {
         state.mood,
         state.isHighQuality
       );
+      
+      const newResults = state.results.map(r => r.id === targetResult.id ? { ...r, image: refinedImage } : r);
+      
+      // Update DB if this was from history (simplified: we just update UI state, user might need to regenerate properly to save new version or we update current history item context)
+      // For now, let's keep it in session state.
+      
       setState(prev => ({
         ...prev,
         isGenerating: false,
-        results: prev.results.map(r => r.id === targetResult.id ? { ...r, image: refinedImage } : r)
+        results: newResults
       }));
     } catch (err) {
       setState(prev => ({ ...prev, isGenerating: false, error: "Echec de la retouche." }));
     }
   };
 
-  const handleDownloadAll = () => {
-    state.results.forEach((res, index) => {
+  // --- Bulk Selection Handlers ---
+
+  const toggleSelectionMode = () => {
+    setSelectionMode(!selectionMode);
+    setSelectedResultIds(new Set());
+  };
+
+  const toggleResultSelection = (id: string) => {
+    const newSet = new Set(selectedResultIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedResultIds(newSet);
+  };
+
+  const selectAll = () => {
+    if (selectedResultIds.size === state.results.length) {
+      setSelectedResultIds(new Set());
+    } else {
+      setSelectedResultIds(new Set(state.results.map(r => r.id)));
+    }
+  };
+
+  const handleBulkDownload = () => {
+    const selected = state.results.filter(r => selectedResultIds.has(r.id));
+    selected.forEach((res, index) => {
       setTimeout(() => {
         const link = document.createElement('a');
         link.href = res.image;
@@ -455,8 +483,10 @@ const App: React.FC = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-      }, index * 800);
+      }, index * 500);
     });
+    setSelectionMode(false);
+    setSelectedResultIds(new Set());
   };
 
   const handleShare = async (result: GeneratedResult) => {
@@ -512,7 +542,7 @@ const App: React.FC = () => {
         isHighQuality={state.isHighQuality}
       />
 
-      <main className="flex-1 overflow-y-auto h-screen relative">
+      <main className="flex-1 overflow-y-auto h-screen relative ml-20 lg:ml-0">
         {/* VIEW: GALLERY */}
         {state.currentView === 'gallery' && (
           <div className="p-8 max-w-7xl mx-auto animate-fade-in">
@@ -545,7 +575,7 @@ const App: React.FC = () => {
               <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
                 <div>
                    <h2 className="text-4xl font-serif text-burgundy mb-2">Portfolio</h2>
-                   <p className="text-gray-500">Retrouvez toutes vos sessions de travail sauvegardées localement.</p>
+                   <p className="text-gray-500">Stockage sécurisé et illimité.</p>
                 </div>
                 <div className="flex gap-4 items-center">
                   <select 
@@ -560,7 +590,7 @@ const App: React.FC = () => {
                     onClick={() => setShowDeleteConfirm(true)}
                     className="text-red-800 text-xs font-bold uppercase underline"
                   >
-                    Nettoyer
+                    Nettoyer tout
                   </button>
                 </div>
               </div>
@@ -598,7 +628,7 @@ const App: React.FC = () => {
 
         {/* VIEW: CREATE (STUDIO) */}
         {state.currentView === 'create' && (
-          <div className="max-w-7xl mx-auto w-full px-4 md:px-8 py-10 animate-fade-in">
+          <div className="max-w-7xl mx-auto w-full px-4 md:px-8 py-10 animate-fade-in mb-24">
              <ProgressBar currentStep={step} />
 
              {/* Step 1: Upload */}
@@ -625,7 +655,7 @@ const App: React.FC = () => {
                <div className="grid lg:grid-cols-12 gap-8">
                   <div className="lg:col-span-8 space-y-6">
                      
-                     {/* CASTING SECTION (NEW) */}
+                     {/* CASTING SECTION */}
                      <div className="bg-white p-6 rounded-3xl shadow-sm">
                         <h3 className="text-lg font-serif text-burgundy mb-4">Casting Modèle</h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -705,7 +735,7 @@ const App: React.FC = () => {
                           )}
                        </div>
 
-                       {/* Mood (NEW) */}
+                       {/* Mood */}
                        <div className="bg-white p-6 rounded-3xl shadow-sm">
                           <h3 className="text-lg font-serif text-burgundy mb-4">Ambiance</h3>
                           <div className="space-y-2">
@@ -834,20 +864,15 @@ const App: React.FC = () => {
                                <p className="text-gray-500 text-sm">Sauvegardé automatiquement dans le Portfolio.</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                               {/* Batch Shortcut */}
+                               <button 
+                                onClick={toggleSelectionMode} 
+                                className={`px-6 py-3 border rounded-xl font-bold transition-all flex items-center gap-2 ${selectionMode ? 'bg-burgundy text-white border-burgundy' : 'bg-white text-gray-600 border-gray-200'}`}
+                               >
+                                  {selectionMode ? 'Annuler Sélection' : 'Sélection Multiple'}
+                               </button>
                                <button onClick={reset} className="px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 flex items-center gap-2">
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                   Nouveau Produit
-                               </button>
-                               <button onClick={handleDownloadAll} className="px-6 py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black flex items-center gap-2">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                  Tout Exporter
-                               </button>
-                               <button 
-                                 onClick={() => navigator.clipboard.writeText(generateHashtags()).then(() => alert('Hashtags copiés !'))}
-                                 className="px-6 py-3 bg-burgundy text-[#D4AF37] rounded-xl font-bold flex items-center gap-2"
-                               >
-                                  # Copier Tags
                                </button>
                             </div>
                          </div>
@@ -869,42 +894,57 @@ const App: React.FC = () => {
                          {/* Grid Results */}
                          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                             {state.results.map((res) => (
-                               <div key={res.id} className="group relative bg-white p-2 rounded-3xl shadow-sm hover:shadow-xl transition-all">
+                               <div 
+                                 key={res.id} 
+                                 onClick={() => selectionMode ? toggleResultSelection(res.id) : null}
+                                 className={`group relative bg-white p-2 rounded-3xl shadow-sm transition-all ${selectionMode ? 'cursor-pointer' : ''} ${selectedResultIds.has(res.id) ? 'ring-4 ring-burgundy scale-105 z-10' : 'hover:shadow-xl'}`}
+                               >
                                   <div className="relative overflow-hidden rounded-2xl">
-                                     <img src={res.image} className="w-full object-cover" alt={res.label} />
+                                     <img src={res.image} className={`w-full object-cover transition-opacity ${selectedResultIds.has(res.id) ? 'opacity-80' : ''}`} alt={res.label} />
                                      
+                                     {/* Selection Checkmark Overlay */}
+                                     {selectionMode && (
+                                       <div className="absolute top-4 right-4 z-20">
+                                         <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors ${selectedResultIds.has(res.id) ? 'bg-burgundy border-burgundy text-white' : 'bg-white/50 border-white text-transparent'}`}>
+                                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+                                         </div>
+                                       </div>
+                                     )}
+
                                      {/* Social Overlay */}
-                                     {socialFormat && (
+                                     {socialFormat && !selectionMode && (
                                         <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
                                            <div className={`border-2 border-white/80 shadow-2xl ${SOCIAL_FORMATS.find(f => f.id === socialFormat)?.width} ${SOCIAL_FORMATS.find(f => f.id === socialFormat)?.height}`}></div>
                                         </div>
                                      )}
 
-                                     {/* Hover Actions */}
-                                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
-                                        <div className="flex justify-between items-center">
-                                           <span className="text-white text-xs font-bold uppercase">{res.label}</span>
-                                           <div className="flex gap-2">
-                                              <button 
-                                                onClick={() => setEditingResult(res)}
-                                                className="bg-white/20 backdrop-blur p-2 rounded-full text-white hover:bg-white hover:text-burgundy transition-colors"
-                                                title="Magic Edit"
-                                              >
-                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                                              </button>
-                                              <button 
-                                                onClick={() => handleShare(res)}
-                                                className="bg-white/20 backdrop-blur p-2 rounded-full text-white hover:bg-white hover:text-burgundy transition-colors"
-                                                title="Partager"
-                                              >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
-                                              </button>
-                                              <a href={res.image} download={`vastra-${res.label}.png`} className="bg-[#D4AF37] p-2 rounded-full text-burgundy hover:scale-110 transition-transform">
-                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                              </a>
+                                     {/* Hover Actions (Disabled in Selection Mode) */}
+                                     {!selectionMode && (
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+                                           <div className="flex justify-between items-center">
+                                              <span className="text-white text-xs font-bold uppercase">{res.label}</span>
+                                              <div className="flex gap-2">
+                                                 <button 
+                                                   onClick={(e) => { e.stopPropagation(); setEditingResult(res); }}
+                                                   className="bg-white/20 backdrop-blur p-2 rounded-full text-white hover:bg-white hover:text-burgundy transition-colors"
+                                                   title="Magic Edit"
+                                                 >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                                 </button>
+                                                 <button 
+                                                   onClick={(e) => { e.stopPropagation(); handleShare(res); }}
+                                                   className="bg-white/20 backdrop-blur p-2 rounded-full text-white hover:bg-white hover:text-burgundy transition-colors"
+                                                   title="Partager"
+                                                 >
+                                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
+                                                 </button>
+                                                 <a href={res.image} download={`vastra-${res.label}.png`} onClick={(e) => e.stopPropagation()} className="bg-[#D4AF37] p-2 rounded-full text-burgundy hover:scale-110 transition-transform">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                 </a>
+                                              </div>
                                            </div>
                                         </div>
-                                     </div>
+                                     )}
                                   </div>
                                </div>
                             ))}
@@ -916,6 +956,25 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+      
+      {/* Selection Action Bar */}
+      {selectionMode && (
+         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-burgundy text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-6 z-50 animate-fade-in border border-[#D4AF37]">
+            <div className="flex items-center gap-2">
+               <span className="font-bold text-[#D4AF37]">{selectedResultIds.size}</span>
+               <span className="text-sm">sélectionné(s)</span>
+            </div>
+            <div className="h-6 w-px bg-white/20"></div>
+            <button onClick={selectAll} className="text-sm hover:text-[#D4AF37] transition-colors">Tout sélectionner</button>
+            <button 
+              onClick={handleBulkDownload} 
+              disabled={selectedResultIds.size === 0}
+              className="bg-[#D4AF37] text-burgundy px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 transition-transform disabled:opacity-50 disabled:scale-100"
+            >
+               Télécharger ({selectedResultIds.size})
+            </button>
+         </div>
+      )}
       
       {editingResult && (
         <MagicEditor 
@@ -929,8 +988,9 @@ const App: React.FC = () => {
         isOpen={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={() => {
-          localStorage.removeItem(STORAGE_KEY);
-          setState(prev => ({ ...prev, history: [] }));
+          clearAllHistory().then(() => {
+             setState(prev => ({ ...prev, history: [] }));
+          });
         }}
         title="Supprimer le Portfolio ?"
         message="Cette action est irréversible. Toutes vos sessions sauvegardées seront perdues."
